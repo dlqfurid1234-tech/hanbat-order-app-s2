@@ -14,10 +14,8 @@ import os
 import time
 
 import httpx
-import pybreaker
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
 
 app = FastAPI(title="order-api", version="1.0.0")
@@ -50,39 +48,9 @@ ORDERS: dict[str, dict] = {
 async def health():
     return {"status": "ok", "service": "order-api"}
 
-# ---------------------------------------------------------------------------
-# Circuit Breaker 설정
-# ---------------------------------------------------------------------------
-payment_breaker = pybreaker.CircuitBreaker(
-    fail_max=5,        # 연속 5회 실패 시 Open (차단)
-    reset_timeout=10,  # 10초 후 Half-Open 전환 (회복 테스트)
-)
-
-@retry(
-    stop=stop_after_attempt(3),       # 최대 3회 시도
-    wait=wait_fixed(0.5),             # 재시도 간격 0.5초
-    retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError)),
-    reraise=True
-)
-async def _fetch_payment_inner(order_id: str) -> dict:
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        resp = await client.get(f"{PAYMENT_API_URL}/api/payments/{order_id}")
-        resp.raise_for_status()         # 503 → HTTPStatusError → 재시도 트리거
-        return resp.json()
-
-async def _fetch_payment(order_id: str) -> dict:
-    return await payment_breaker.call_async(_fetch_payment_inner, order_id)
 
 @app.get("/api/orders/{order_id}")
 async def get_order(order_id: str):
-    """
-    주문 + 결제 정보 통합 조회
-
-    ┌─────────────────────────────────────────────────────────────────────┐
-    │ Phase 2 완성 상태                                                    │
-    │  Timeout(2s) + Retry(3회) + Circuit Breaker(5회 실패 시 Open)       │
-    └─────────────────────────────────────────────────────────────────────┘
-    """
     order = ORDERS.get(order_id)
     if not order:
         raise HTTPException(
@@ -92,29 +60,11 @@ async def get_order(order_id: str):
 
     start = time.monotonic()
 
-    try:
-        payment = await _fetch_payment(order_id)
-    except pybreaker.CircuitBreakerError:
-        # Circuit Breaker Open 상태 — payment-api를 아예 호출하지 않고 즉시 Fallback
-        payment = {
-            "status": "조회불가",
-            "message": "결제 서비스 일시 중단 — 잠시 후 다시 시도해주세요",
-        }
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail={"error": "PAYMENT_API_TIMEOUT", "order_id": order_id},
-        )
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "PAYMENT_API_ERROR", "upstream_status": e.response.status_code},
-        )
-    except httpx.RequestError as e:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "PAYMENT_API_UNREACHABLE", "detail": str(e)},
-        )
+    # Phase 1: timeout 없음 — payment-api가 느려지면 이 스레드도 같이 멈춤
+    # Phase 2에서 Retry + Circuit Breaker 로 개선 예정
+    async with httpx.AsyncClient(timeout=None) as client:
+        resp = await client.get(f"{PAYMENT_API_URL}/api/payments/{order_id}")
+        payment = resp.json()
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
