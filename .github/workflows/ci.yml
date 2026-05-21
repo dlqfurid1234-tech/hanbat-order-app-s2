@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'order-api/**'
+      - 'payment-api/**'
+      - 'order-web/**'
+  workflow_dispatch:    # 수동 트리거 (Actions 탭에서 Run workflow 버튼)
+
+permissions:
+  id-token: write    # OIDC 토큰 발급 권한
+  contents: write    # 매니페스트 자동 커밋 권한 (Phase 3-4에서 사용)
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "코드 체크아웃"
+        uses: actions/checkout@v4    # GitHub이 제공하는 공식 Action. Runner에 레포 코드를 내려받음
+
+      - name: "Azure 로그인 (OIDC)"
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "이미지 태그 설정"
+        id: tag
+        run: |
+          echo "TAG=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: "order-api 빌드 및 푸시"
+        run: |
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
+            --image order-api:${{ steps.tag.outputs.TAG }} \
+            --image order-api:latest \
+            order-api/
+
+      - name: "payment-api 빌드 및 푸시"
+        run: |
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
+            --image payment-api:${{ steps.tag.outputs.TAG }} \
+            --image payment-api:latest \
+            payment-api/
+
+      - name: "order-web 빌드 및 푸시"
+        run: |
+          az acr build \
+            --registry ${{ secrets.ACR_NAME }} \
+            --image order-web:${{ steps.tag.outputs.TAG }} \
+            --image order-web:latest \
+            order-web/
