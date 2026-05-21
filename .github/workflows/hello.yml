@@ -23,3 +23,12 @@ jobs:
       - name: "Secret 참조"
         run: |
           echo "Secret 앞 3자리: ${{ secrets.MY_SECRET }}"
+          
+      - name: "태그 생성"
+        id: tag
+        run: |
+          echo "TAG=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: "태그 사용"
+        run: |
+          echo "이미지 태그는 ${{ steps.tag.outputs.TAG }} 입니다"
