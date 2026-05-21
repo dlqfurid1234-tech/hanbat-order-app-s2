@@ -1,0 +1,21 @@
+name: Hello World
+
+on:                          # ← 트리거: "언제 실행할지" 조건
+  push:
+    branches: [main]         # main에 push할 때 자동 실행
+  workflow_dispatch:         # GitHub UI에서 수동으로 실행 버튼 클릭 시 실행
+
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "코드 체크아웃"
+        uses: actions/checkout@v4    # GitHub이 제공하는 공식 Action. Runner에 레포 코드를 내려받음
+
+      - name: "인사하기"
+        run: |
+          echo "안녕하세요, ${{ github.actor }}님! 커밋: ${{ github.sha }}"
+
+      - name: "파일 목록 출력"
+        run: ls -la
