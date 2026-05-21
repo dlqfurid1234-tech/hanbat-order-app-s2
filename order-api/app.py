@@ -14,8 +14,11 @@ import os
 import time
 
 import httpx
+from circuitbreaker import circuit, CircuitBreakerError
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+
 
 
 app = FastAPI(title="order-api", version="1.0.0")
@@ -48,7 +51,26 @@ ORDERS: dict[str, dict] = {
 async def health():
     return {"status": "ok", "service": "order-api"}
 
+@retry(
+    stop=stop_after_attempt(3),       # 최대 3회 시도
+    wait=wait_fixed(0.5),             # 재시도 간격 0.5초
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError)),
+    reraise=True
+)
+async def _fetch_payment_inner(order_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        resp = await client.get(f"{PAYMENT_API_URL}/api/payments/{order_id}")
+        resp.raise_for_status()
+        return resp.json()
 
+@circuit(
+    failure_threshold=5,      # 연속 5회 실패 시 Open (차단)
+    recovery_timeout=10,      # 10초 후 Half-Open 전환 (회복 테스트)
+    expected_exception=(httpx.TimeoutException, httpx.HTTPStatusError),
+)
+async def _fetch_payment(order_id: str) -> dict:
+    return await _fetch_payment_inner(order_id)
+        
 @app.get("/api/orders/{order_id}")
 async def get_order(order_id: str):
     order = ORDERS.get(order_id)
@@ -69,26 +91,29 @@ async def get_order(order_id: str):
     #    [STEP 2] tenacity 로 Retry 래핑
     #
     #    [STEP 3] circuitbreaker 로 Circuit Breaker 래핑
-    async with httpx.AsyncClient(timeout=None) as client:  # ← Phase 2에서 수정
-        try:
-            resp = await client.get(f"{PAYMENT_API_URL}/api/payments/{order_id}")
-            resp.raise_for_status()
-            payment = resp.json()
-        except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=504,
-                detail={"error": "PAYMENT_API_TIMEOUT", "order_id": order_id},
-            )
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(
-                status_code=502,
-                detail={"error": "PAYMENT_API_ERROR", "upstream_status": e.response.status_code},
-            )
-        except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=502,
-                detail={"error": "PAYMENT_API_UNREACHABLE", "detail": str(e)},
-            )
+    try:
+        payment = await _fetch_payment(order_id)
+    except CircuitBreakerError:
+        # CB Open 상태 — payment-api를 아예 호출하지 않고 즉시 Fallback 응답
+        payment = {
+            "status": "조회불가",
+            "message": "결제 서비스 일시 중단 — 잠시 후 다시 시도해주세요",
+        }
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail={"error": "PAYMENT_API_TIMEOUT", "order_id": order_id},
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "PAYMENT_API_ERROR", "upstream_status": e.response.status_code},
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "PAYMENT_API_UNREACHABLE", "detail": str(e)},
+        )
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
@@ -97,3 +122,4 @@ async def get_order(order_id: str):
         "payment": payment,
         "total_response_time_ms": elapsed_ms,
     }
+#test
