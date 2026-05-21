@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   # TODO: <본인_GitHub_사용자명> 을 실제 사용자명으로 바꾸세요
   # 예) hanbat-jdoe
-  name: hanbat-<본인_GitHub_사용자명>
+  name: hanbat-dlqfurid1234-tech
   labels:
     app.kubernetes.io/managed-by: argocd
     project: hanbat-s2

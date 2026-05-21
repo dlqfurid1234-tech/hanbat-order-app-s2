@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: payment-api
   # TODO: namespace 를 본인 네임스페이스로 변경
-  namespace: hanbat-<본인_GitHub_사용자명>
+  namespace: hanbat-dlqfurid1234-tech
   labels:
     app: payment-api
 spec:

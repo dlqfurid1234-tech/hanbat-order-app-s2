@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: hanbat-ingress
-  namespace: hanbat-<본인_GitHub_사용자명>
+  namespace: hanbat-dlqfurid1234-tech
   annotations:
     # AKS 기본 nginx ingress controller 사용
     kubernetes.io/ingress.class: nginx

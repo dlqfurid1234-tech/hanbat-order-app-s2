@@ -17,7 +17,7 @@ spec:
     path: k8s
   destination:
     server: https://kubernetes.default.svc
-    namespace: hanbat-<본인_GitHub_사용자명>
+    namespace: hanbat-dlqfurid1234-tech
   syncPolicy:
     automated:
       prune: true      # Git 에서 삭제된 리소스는 클러스터에서도 삭제

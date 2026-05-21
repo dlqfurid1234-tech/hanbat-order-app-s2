@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-web
-  namespace: hanbat-<본인_GitHub_사용자명>
+  namespace: hanbat-dlqfurid1234-tech
   labels:
     app: order-web
 spec:
